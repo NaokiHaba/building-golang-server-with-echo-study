@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/labstack/echo"
+	"github.com/labstack/echo/middleware"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -103,8 +104,24 @@ func addHamster(c echo.Context) error {
 	return c.String(http.StatusOK, "Success")
 }
 
+func mainAdmin(c echo.Context) error {
+
+	return c.String(http.StatusOK, "")
+}
+
 func main() {
 	e := echo.New()
+
+	// グループ化
+	g := e.Group("/admin")
+
+	// Echo アプリケーションで発生するリクエストやレスポンスに関する情報をログとして出力
+	g.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
+		// リクエストの処理時刻、HTTP メソッド、リクエスト URI、HTTP ステータスコードを表す
+		Format: "time=${time_rfc3339_nano}, method=${method}, uri=${uri}, status=${status}\n",
+	}))
+
+	g.GET("/main", mainAdmin)
 
 	e.GET("/", hello)
 	e.GET("/cats/:data", getCats)
