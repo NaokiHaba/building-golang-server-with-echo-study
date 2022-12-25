@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"github.com/labstack/echo"
@@ -109,8 +110,21 @@ func mainAdmin(c echo.Context) error {
 	return c.String(http.StatusOK, "")
 }
 
+// ServerHeader Custom middleware https://echo.labstack.com/guide/context/
+func ServerHeader(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		// HTTPレスポンスヘッダーに "Server: BlueBot/1.0" というエントリーを追加
+		c.Response().Header().Set(echo.HeaderServer, "BlueBot/1.0")
+
+		// 処理を次のミドルウェアに渡す
+		return next(c)
+	}
+}
+
 func main() {
 	e := echo.New()
+
+	e.Use(ServerHeader)
 
 	// グループ化
 	g := e.Group("/admin")
@@ -119,6 +133,16 @@ func main() {
 	g.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		// リクエストの処理時刻、HTTP メソッド、リクエスト URI、HTTP ステータスコードを表す
 		Format: "time=${time_rfc3339_nano}, method=${method}, uri=${uri}, status=${status}\n",
+	}))
+
+	e.Use(middleware.BasicAuth(func(username, password string, c echo.Context) (bool, error) {
+		// 2つの文字列の長さに関係なく、常に同じ時間で比較
+		// 長い文字列を比較するのにより多くの時間がかかる（タイムアタック攻撃を防ぐ）
+		if subtle.ConstantTimeCompare([]byte(username), []byte("joe")) == 1 &&
+			subtle.ConstantTimeCompare([]byte(password), []byte("secret")) == 1 {
+			return true, nil
+		}
+		return false, nil
 	}))
 
 	g.GET("/main", mainAdmin)
