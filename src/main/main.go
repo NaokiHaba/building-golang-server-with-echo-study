@@ -9,6 +9,8 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strings"
+	"time"
 )
 
 func hello(c echo.Context) error {
@@ -106,8 +108,28 @@ func addHamster(c echo.Context) error {
 }
 
 func mainAdmin(c echo.Context) error {
+	return c.String(http.StatusOK, "admin page")
+}
 
-	return c.String(http.StatusOK, "")
+func mainCookie(c echo.Context) error {
+	return c.String(http.StatusOK, "cookie page")
+}
+
+func login(c echo.Context) error {
+	name := c.QueryParam("name")
+	password := c.QueryParam("password")
+
+	if name == "name" && password == "password" {
+		// Create a Cookie
+		cookie := new(http.Cookie)
+		cookie.Name = "username"
+		cookie.Value = "jon"
+		cookie.Expires = time.Now().Add(24 * time.Hour)
+		c.SetCookie(cookie)
+		return c.String(http.StatusOK, "login")
+	}
+
+	return c.String(http.StatusUnauthorized, "falled login")
 }
 
 // ServerHeader Custom middleware https://echo.labstack.com/guide/context/
@@ -121,21 +143,43 @@ func ServerHeader(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
+func checkCookie(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		cookie, err := c.Cookie("username")
+
+		//　strings.Contains は、文字列が特定の文字列を含んでいるかどうかを判断する
+		if strings.Contains(err.Error(), "named cookie not present") {
+			return c.String(http.StatusUnauthorized, "not cookie")
+		}
+
+		if err != nil {
+			return err
+		}
+
+		if cookie.Value == "jon" {
+			return next(c)
+		}
+
+		return c.String(http.StatusOK, "check true")
+	}
+}
+
 func main() {
 	e := echo.New()
 
 	e.Use(ServerHeader)
 
 	// グループ化
-	g := e.Group("/admin")
+	adminGroup := e.Group("/admin")
+	cookieGroup := e.Group("/cookie")
 
 	// Echo アプリケーションで発生するリクエストやレスポンスに関する情報をログとして出力
-	g.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
+	adminGroup.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		// リクエストの処理時刻、HTTP メソッド、リクエスト URI、HTTP ステータスコードを表す
 		Format: "time=${time_rfc3339_nano}, method=${method}, uri=${uri}, status=${status}\n",
 	}))
 
-	e.Use(middleware.BasicAuth(func(username, password string, c echo.Context) (bool, error) {
+	adminGroup.Use(middleware.BasicAuth(func(username, password string, c echo.Context) (bool, error) {
 		// 2つの文字列の長さに関係なく、常に同じ時間で比較
 		// 長い文字列を比較するのにより多くの時間がかかる（タイムアタック攻撃を防ぐ）
 		if subtle.ConstantTimeCompare([]byte(username), []byte("joe")) == 1 &&
@@ -145,7 +189,11 @@ func main() {
 		return false, nil
 	}))
 
-	g.GET("/main", mainAdmin)
+	cookieGroup.Use(checkCookie)
+	cookieGroup.GET("/main", mainCookie)
+	cookieGroup.GET("/login", login)
+
+	adminGroup.GET("/main", mainAdmin)
 
 	e.GET("/", hello)
 	e.GET("/cats/:data", getCats)
