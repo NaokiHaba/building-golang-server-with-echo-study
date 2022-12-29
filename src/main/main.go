@@ -4,13 +4,15 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
-	"github.com/labstack/echo"
-	"github.com/labstack/echo/middleware"
+	"github.com/dgrijalva/jwt-go"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/labstack/echo"
+	"github.com/labstack/echo/middleware"
 )
 
 func hello(c echo.Context) error {
@@ -115,6 +117,17 @@ func mainCookie(c echo.Context) error {
 	return c.String(http.StatusOK, "cookie page")
 }
 
+func mainJwt(c echo.Context) error {
+	user := c.Get("user")
+	token := user.(*jwt.Token)
+
+	claim := token.Claims.(jwt.MapClaims)
+
+	log.Println("user Name", claim["name"].(string), "user ID", claim["jti"])
+
+	return c.String(http.StatusOK, "Jwt page")
+}
+
 func login(c echo.Context) error {
 	name := c.QueryParam("name")
 	password := c.QueryParam("password")
@@ -126,10 +139,53 @@ func login(c echo.Context) error {
 		cookie.Value = "jon"
 		cookie.Expires = time.Now().Add(24 * time.Hour)
 		c.SetCookie(cookie)
-		return c.String(http.StatusOK, "login")
+
+		token, err := createJwtToken()
+
+		if err != nil {
+			log.Println("Error creating jwt token", err)
+			return c.String(http.StatusInternalServerError, "something went wrong")
+		}
+
+		//{
+		//	"message": "log in success",
+		//	"token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiYmFyIiwiZXhwIjoxNjcyMzg5MzYyLCJqdGkiOiJ1c2VyX2lkIn0.GacY-EfXkyKQ2sVnVaNoNgLtiM5SXPa8qEPtPlM7nrY"
+		//}
+		return c.JSON(http.StatusOK, map[string]string{
+			"message": "log in success",
+			"token":   token,
+		})
 	}
 
-	return c.String(http.StatusUnauthorized, "falled login")
+	return c.String(http.StatusUnauthorized, "filed login")
+}
+
+type JwtClaims struct {
+	Name string `json:"name"`
+
+	// JWTのペイロード情報をまとめた構造体
+	jwt.StandardClaims
+}
+
+// https://github.com/dgrijalva/jwt-go/blob/master/example_test.go#L31-L53
+func createJwtToken() (string, error) {
+	mySigningKey := []byte("AllYourBase")
+
+	// Create the Claims
+	claims := JwtClaims{
+		"bar",
+		jwt.StandardClaims{
+			ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+			Id:        "user_id",
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	ss, err := token.SignedString(mySigningKey)
+	if err != nil {
+		return "", err
+	}
+	return ss, nil
 }
 
 // ServerHeader Custom middleware https://echo.labstack.com/guide/context/
@@ -172,6 +228,7 @@ func main() {
 	// グループ化
 	adminGroup := e.Group("/admin")
 	cookieGroup := e.Group("/cookie")
+	jwtGroup := e.Group("/jwt")
 
 	// Echo アプリケーションで発生するリクエストやレスポンスに関する情報をログとして出力
 	adminGroup.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
@@ -189,11 +246,18 @@ func main() {
 		return false, nil
 	}))
 
-	cookieGroup.Use(checkCookie)
-	cookieGroup.GET("/main", mainCookie)
-	cookieGroup.GET("/login", login)
+	//cookieGroup.Use(checkCookie)
 
+	jwtGroup.Use(middleware.JWTWithConfig(middleware.JWTConfig{
+		SigningKey:    []byte("AllYourBase"),
+		SigningMethod: "HS256",
+	}))
+
+	cookieGroup.GET("/main", mainCookie)
 	adminGroup.GET("/main", mainAdmin)
+	jwtGroup.GET("/main", mainJwt)
+
+	cookieGroup.GET("/login", login)
 
 	e.GET("/", hello)
 	e.GET("/cats/:data", getCats)
