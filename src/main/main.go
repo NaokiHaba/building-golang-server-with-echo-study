@@ -120,9 +120,7 @@ func mainCookie(c echo.Context) error {
 func mainJwt(c echo.Context) error {
 	user := c.Get("user")
 	token := user.(*jwt.Token)
-
 	claim := token.Claims.(jwt.MapClaims)
-
 	log.Println("user Name", claim["name"].(string), "user ID", claim["jti"])
 
 	return c.String(http.StatusOK, "Jwt page")
@@ -147,10 +145,12 @@ func login(c echo.Context) error {
 			return c.String(http.StatusInternalServerError, "something went wrong")
 		}
 
-		//{
-		//	"message": "log in success",
-		//	"token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiYmFyIiwiZXhwIjoxNjcyMzg5MzYyLCJqdGkiOiJ1c2VyX2lkIn0.GacY-EfXkyKQ2sVnVaNoNgLtiM5SXPa8qEPtPlM7nrY"
-		//}
+		jwtCookie := &http.Cookie{}
+		jwtCookie.Name = "JWTCookie"
+		jwtCookie.Value = token
+		jwtCookie.Expires = time.Now().Add(48 * time.Hour)
+		c.SetCookie(jwtCookie)
+
 		return c.JSON(http.StatusOK, map[string]string{
 			"message": "log in success",
 			"token":   token,
@@ -249,8 +249,14 @@ func main() {
 	//cookieGroup.Use(checkCookie)
 
 	jwtGroup.Use(middleware.JWTWithConfig(middleware.JWTConfig{
-		SigningKey:    []byte("AllYourBase"),
+		// JWT の署名を行うために使用する秘密鍵を保持
+		SigningKey: []byte("AllYourBase"),
+
+		// JWT署名アルゴリズム
 		SigningMethod: "HS256",
+
+		// JWT トークンを取得する方法を指定する
+		TokenLookup: "cookie:JWTCookie",
 	}))
 
 	cookieGroup.GET("/main", mainCookie)
@@ -260,6 +266,7 @@ func main() {
 	cookieGroup.GET("/login", login)
 
 	e.GET("/", hello)
+	e.GET("/login", login)
 	e.GET("/cats/:data", getCats)
 	e.POST("/cats", addCat)
 	e.POST("/dog", addDog)
